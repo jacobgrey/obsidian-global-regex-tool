@@ -269,3 +269,83 @@
     gap: 6px;
     margin-top: 12px;
 }
+
+.modal .gr-save-preview {
+    background: var(--background-secondary);
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-smaller, 0.85em);
+    word-break: break-word;
+}
+
+.modal .gr-save-label {
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.modal .gr-save-hint {
+    margin: 0 0 6px 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller, 0.85em);
+}
+
+.modal .gr-save-list {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    margin-bottom: 12px;
+}
+
+.modal .gr-save-item {
+    padding: 6px 10px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.modal .gr-save-item:last-child {
+    border-bottom: none;
+}
+
+.modal .gr-save-item:hover {
+    background: var(--background-modifier-hover);
+}
+
+.modal .gr-save-item.is-selected {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.modal .gr-save-item-name {
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.modal .gr-save-item-preview {
+    color: var(--text-muted);
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-smaller, 0.85em);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.modal .gr-save-item.is-selected .gr-save-item-preview {
+    color: var(--text-on-accent);
+    opacity: 0.85;
+}
+
+.modal .gr-save-name-label {
+    display: block;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}

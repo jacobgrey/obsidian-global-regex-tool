@@ -680,14 +680,12 @@ class RegexView extends ItemView {
         const existingNames = new Set(
             this.plugin.settings.savedPairs.map((p) => p.name)
         );
-        new PromptModal(
+        new SavePairModal(
             this.plugin.app,
-            "Save find/replace pair",
-            "Pair name",
-            "",
-            (raw) => {
-                const name = raw.trim();
-                if (!name) return;
+            this.plugin.settings.savedPairs,
+            find,
+            replace,
+            (name) => {
                 const pairs = this.plugin.settings.savedPairs;
                 const existing = pairs.find((p) => p.name === name);
                 if (existing) {
@@ -1414,6 +1412,162 @@ class FolderPickerModal extends SuggestModal<TFolder> {
 
     onChooseSuggestion(folder: TFolder) {
         this.onChoose(folder);
+    }
+}
+
+class SavePairModal extends Modal {
+    private readonly pairs: SavedPair[];
+    private readonly find: string;
+    private readonly replace: string;
+    private readonly onSubmit: (name: string) => void;
+    private readonly existingNames: Set<string>;
+    private inputEl!: HTMLInputElement;
+    private saveBtn!: HTMLButtonElement;
+    private listEl: HTMLElement | null = null;
+
+    constructor(
+        app: App,
+        pairs: SavedPair[],
+        find: string,
+        replace: string,
+        onSubmit: (name: string) => void
+    ) {
+        super(app);
+        this.pairs = pairs;
+        this.find = find;
+        this.replace = replace;
+        this.onSubmit = onSubmit;
+        this.existingNames = new Set(pairs.map((p) => p.name));
+    }
+
+    onOpen() {
+        this.titleEl.setText("Save find/replace pair");
+        const content = this.contentEl;
+        content.addClass("gr-save-modal");
+
+        const preview = content.createDiv({ cls: "gr-save-preview" });
+        const findRow = preview.createDiv();
+        findRow.createSpan({ cls: "gr-save-label", text: "Find: " });
+        findRow.createSpan({
+            cls: "gr-save-value",
+            text: this.find || "(empty)",
+        });
+        const replaceRow = preview.createDiv();
+        replaceRow.createSpan({
+            cls: "gr-save-label",
+            text: "Replace: ",
+        });
+        replaceRow.createSpan({
+            cls: "gr-save-value",
+            text: this.replace || "(empty)",
+        });
+
+        if (this.pairs.length > 0) {
+            content.createEl("p", {
+                cls: "gr-save-hint",
+                text: "Click an existing pair to overwrite it, or type a new name below.",
+            });
+            this.listEl = content.createDiv({ cls: "gr-save-list" });
+            for (const pair of this.pairs) {
+                const item = this.listEl.createDiv({ cls: "gr-save-item" });
+                item.createSpan({
+                    cls: "gr-save-item-name",
+                    text: pair.name,
+                });
+                const snippet =
+                    pair.find.length > 48
+                        ? pair.find.slice(0, 47) + "…"
+                        : pair.find;
+                item.createSpan({
+                    cls: "gr-save-item-preview",
+                    text: snippet,
+                });
+                item.addEventListener("click", () => {
+                    this.inputEl.value = pair.name;
+                    this.highlightItem(item);
+                    this.updateSaveLabel();
+                    this.inputEl.focus();
+                });
+            }
+        }
+
+        const nameLabel = content.createEl("label", {
+            cls: "gr-save-name-label",
+            text: "Name",
+        });
+        this.inputEl = nameLabel.createEl("input", {
+            type: "text",
+            cls: "gr-prompt-input",
+        });
+        this.inputEl.placeholder = "Pair name";
+        this.inputEl.addEventListener("input", () => {
+            this.syncListSelection();
+            this.updateSaveLabel();
+        });
+        this.inputEl.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                this.submit();
+            } else if (e.key === "Escape") {
+                this.close();
+            }
+        });
+        setTimeout(() => this.inputEl.focus(), 0);
+
+        const btnRow = content.createDiv({ cls: "gr-prompt-buttons" });
+        const cancel = btnRow.createEl("button", { text: "Cancel" });
+        cancel.addEventListener("click", () => this.close());
+        this.saveBtn = btnRow.createEl("button", {
+            text: "Save",
+            cls: "mod-cta",
+        });
+        this.saveBtn.addEventListener("click", () => this.submit());
+        this.updateSaveLabel();
+    }
+
+    private highlightItem(selected: HTMLElement) {
+        if (!this.listEl) return;
+        const items = this.listEl.querySelectorAll(".gr-save-item");
+        items.forEach((el) => el.removeClass("is-selected"));
+        selected.addClass("is-selected");
+    }
+
+    private syncListSelection() {
+        if (!this.listEl) return;
+        const name = this.inputEl.value.trim();
+        const items = this.listEl.querySelectorAll(
+            ".gr-save-item"
+        ) as NodeListOf<HTMLElement>;
+        items.forEach((el) => {
+            const itemName = el.querySelector(".gr-save-item-name")?.textContent;
+            if (itemName === name) el.addClass("is-selected");
+            else el.removeClass("is-selected");
+        });
+    }
+
+    private updateSaveLabel() {
+        const name = this.inputEl.value.trim();
+        const overwriting = !!name && this.existingNames.has(name);
+        this.saveBtn.setText(overwriting ? "Overwrite" : "Save");
+        if (overwriting) {
+            this.saveBtn.removeClass("mod-cta");
+            this.saveBtn.addClass("mod-warning");
+        } else {
+            this.saveBtn.removeClass("mod-warning");
+            this.saveBtn.addClass("mod-cta");
+        }
+        this.saveBtn.disabled = !name;
+    }
+
+    private submit() {
+        const name = this.inputEl.value.trim();
+        if (!name) return;
+        this.close();
+        this.onSubmit(name);
+    }
+
+    onClose() {
+        this.contentEl.empty();
     }
 }
 
