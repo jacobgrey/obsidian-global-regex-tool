@@ -2,6 +2,8 @@ import {
     App,
     ItemView,
     MarkdownView,
+    Menu,
+    Modal,
     Notice,
     Plugin,
     SuggestModal,
@@ -19,6 +21,12 @@ type ScopeType =
     | "selected-folder"
     | "vault";
 
+interface SavedPair {
+    name: string;
+    find: string;
+    replace: string;
+}
+
 interface RegexToolSettings {
     findPattern: string;
     replacePattern: string;
@@ -29,7 +37,12 @@ interface RegexToolSettings {
     scope: ScopeType;
     selectedFolder: string;
     fileExtensions: string;
+    findHistory: string[];
+    replaceHistory: string[];
+    savedPairs: SavedPair[];
 }
+
+const HISTORY_LIMIT = 20;
 
 const DEFAULT_SETTINGS: RegexToolSettings = {
     findPattern: "",
@@ -41,6 +54,9 @@ const DEFAULT_SETTINGS: RegexToolSettings = {
     scope: "current-file",
     selectedFolder: "",
     fileExtensions: "md",
+    findHistory: [],
+    replaceHistory: [],
+    savedPairs: [],
 };
 
 interface RegexMatch {
@@ -51,6 +67,12 @@ interface RegexMatch {
     line: number;
     col: number;
     lineContext: string;
+}
+
+interface DryRunItem {
+    match: RegexMatch;
+    replacedText: string;
+    multiline: boolean;
 }
 
 function indexToLineCol(
@@ -135,6 +157,7 @@ class RegexView extends ItemView {
     private folderInputEl!: HTMLInputElement;
     private folderRowEl!: HTMLElement;
     private extensionInputEl!: HTMLInputElement;
+    private savedPairSelectEl!: HTMLSelectElement;
     private resultsEl!: HTMLElement;
     private statusEl!: HTMLElement;
 
@@ -186,7 +209,20 @@ class RegexView extends ItemView {
 
         // Find
         const findRow = container.createDiv({ cls: "gr-row" });
-        findRow.createEl("label", { text: "Find (regex)", cls: "gr-label" });
+        const findHeader = findRow.createDiv({ cls: "gr-label-row" });
+        findHeader.createEl("label", {
+            text: "Find (regex)",
+            cls: "gr-label",
+        });
+        const findHistoryBtn = findHeader.createEl("button", {
+            text: "History ▾",
+            cls: "gr-mini-btn",
+            attr: { type: "button", title: "Recent find patterns" },
+        });
+        findHistoryBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            this.openHistoryMenu(findHistoryBtn, "find");
+        });
         this.findInputEl = findRow.createEl("textarea", {
             cls: "gr-input gr-find",
         });
@@ -208,9 +244,19 @@ class RegexView extends ItemView {
 
         // Replace
         const replaceRow = container.createDiv({ cls: "gr-row" });
-        replaceRow.createEl("label", {
+        const replaceHeader = replaceRow.createDiv({ cls: "gr-label-row" });
+        replaceHeader.createEl("label", {
             text: "Replace with",
             cls: "gr-label",
+        });
+        const replaceHistoryBtn = replaceHeader.createEl("button", {
+            text: "History ▾",
+            cls: "gr-mini-btn",
+            attr: { type: "button", title: "Recent replacement strings" },
+        });
+        replaceHistoryBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            this.openHistoryMenu(replaceHistoryBtn, "replace");
         });
         this.replaceInputEl = replaceRow.createEl("textarea", {
             cls: "gr-input gr-replace",
@@ -311,6 +357,34 @@ class RegexView extends ItemView {
             this.invalidateMatches();
         });
 
+        // Saved pairs
+        const savedRow = container.createDiv({
+            cls: "gr-row gr-saved-row",
+        });
+        savedRow.createEl("label", {
+            text: "Saved pairs",
+            cls: "gr-label",
+        });
+        this.savedPairSelectEl = savedRow.createEl("select", {
+            cls: "gr-input",
+        });
+        this.refreshSavedPairsSelect();
+        this.savedPairSelectEl.addEventListener("change", () => {
+            this.loadSelectedPair();
+        });
+        const saveBtn = savedRow.createEl("button", {
+            text: "Save…",
+            cls: "gr-btn gr-mini-btn",
+            attr: { type: "button", title: "Save current find + replace as a named pair" },
+        });
+        saveBtn.addEventListener("click", () => this.saveCurrentPair());
+        const deletePairBtn = savedRow.createEl("button", {
+            text: "Delete",
+            cls: "gr-btn gr-mini-btn gr-warn",
+            attr: { type: "button", title: "Delete the selected saved pair" },
+        });
+        deletePairBtn.addEventListener("click", () => this.deleteSelectedPair());
+
         // Buttons
         const btnRow = container.createDiv({ cls: "gr-row gr-buttons" });
         const findNextBtn = btnRow.createEl("button", {
@@ -320,6 +394,11 @@ class RegexView extends ItemView {
         const findAllBtn = btnRow.createEl("button", {
             text: "Find All",
             cls: "gr-btn",
+        });
+        const dryRunBtn = btnRow.createEl("button", {
+            text: "Dry Run",
+            cls: "gr-btn",
+            attr: { title: "Preview what would be replaced, without changing any files" },
         });
         const replaceBtn = btnRow.createEl("button", {
             text: "Replace",
@@ -331,6 +410,7 @@ class RegexView extends ItemView {
         });
         findNextBtn.addEventListener("click", () => this.findNext());
         findAllBtn.addEventListener("click", () => this.findAll());
+        dryRunBtn.addEventListener("click", () => this.dryRun());
         replaceBtn.addEventListener("click", () => this.replaceNext());
         replaceAllBtn.addEventListener("click", () => this.replaceAll());
 
@@ -414,6 +494,168 @@ class RegexView extends ItemView {
 
     private setStatus(text: string) {
         this.statusEl.setText(text);
+    }
+
+    private recordHistory() {
+        const s = this.plugin.settings;
+        const push = (list: string[], value: string) => {
+            if (!value) return list;
+            const next = list.filter((v) => v !== value);
+            next.unshift(value);
+            if (next.length > HISTORY_LIMIT) next.length = HISTORY_LIMIT;
+            return next;
+        };
+        const beforeFind = s.findHistory;
+        const beforeReplace = s.replaceHistory;
+        s.findHistory = push(beforeFind, s.findPattern);
+        s.replaceHistory = push(beforeReplace, s.replacePattern);
+        if (
+            s.findHistory !== beforeFind ||
+            s.replaceHistory !== beforeReplace
+        ) {
+            this.plugin.saveSettings();
+        }
+    }
+
+    private openHistoryMenu(anchor: HTMLElement, type: "find" | "replace") {
+        const list =
+            type === "find"
+                ? this.plugin.settings.findHistory
+                : this.plugin.settings.replaceHistory;
+        const menu = new Menu();
+        if (list.length === 0) {
+            menu.addItem((item) =>
+                item.setTitle("(empty)").setDisabled(true)
+            );
+        } else {
+            for (const entry of list) {
+                const display =
+                    entry.length > 60 ? entry.slice(0, 59) + "…" : entry;
+                menu.addItem((item) => {
+                    item.setTitle(display);
+                    item.onClick(() => this.applyHistory(type, entry));
+                });
+            }
+            menu.addSeparator();
+            menu.addItem((item) =>
+                item
+                    .setTitle("Clear history")
+                    .setIcon("trash")
+                    .onClick(() => {
+                        if (type === "find")
+                            this.plugin.settings.findHistory = [];
+                        else this.plugin.settings.replaceHistory = [];
+                        this.plugin.saveSettings();
+                    })
+            );
+        }
+        const rect = anchor.getBoundingClientRect();
+        menu.showAtPosition({ x: rect.left, y: rect.bottom });
+    }
+
+    private applyHistory(type: "find" | "replace", value: string) {
+        if (type === "find") {
+            this.plugin.settings.findPattern = value;
+            this.findInputEl.value = value;
+            this.validateRegexLive();
+            this.invalidateMatches();
+        } else {
+            this.plugin.settings.replacePattern = value;
+            this.replaceInputEl.value = value;
+        }
+        this.plugin.saveSettings();
+    }
+
+    private refreshSavedPairsSelect(selectName?: string) {
+        const sel = this.savedPairSelectEl;
+        sel.empty();
+        const placeholder = sel.createEl("option", {
+            text: "— Select saved pair —",
+        });
+        placeholder.value = "";
+        const pairs = this.plugin.settings.savedPairs;
+        for (const p of pairs) {
+            const opt = sel.createEl("option", { text: p.name });
+            opt.value = p.name;
+        }
+        sel.value = selectName ?? "";
+    }
+
+    private loadSelectedPair() {
+        const name = this.savedPairSelectEl.value;
+        if (!name) return;
+        const pair = this.plugin.settings.savedPairs.find(
+            (p) => p.name === name
+        );
+        if (!pair) return;
+        this.plugin.settings.findPattern = pair.find;
+        this.plugin.settings.replacePattern = pair.replace;
+        this.findInputEl.value = pair.find;
+        this.replaceInputEl.value = pair.replace;
+        this.validateRegexLive();
+        this.invalidateMatches();
+        this.plugin.saveSettings();
+        this.setStatus(`Loaded "${name}"`);
+    }
+
+    private saveCurrentPair() {
+        const find = this.plugin.settings.findPattern;
+        const replace = this.plugin.settings.replacePattern;
+        if (!find) {
+            new Notice("Enter a find pattern before saving");
+            return;
+        }
+        const existingNames = new Set(
+            this.plugin.settings.savedPairs.map((p) => p.name)
+        );
+        new PromptModal(
+            this.plugin.app,
+            "Save find/replace pair",
+            "Pair name",
+            "",
+            (raw) => {
+                const name = raw.trim();
+                if (!name) return;
+                const pairs = this.plugin.settings.savedPairs;
+                const existing = pairs.find((p) => p.name === name);
+                if (existing) {
+                    existing.find = find;
+                    existing.replace = replace;
+                } else {
+                    pairs.push({ name, find, replace });
+                }
+                pairs.sort((a, b) => a.name.localeCompare(b.name));
+                this.plugin.saveSettings();
+                this.refreshSavedPairsSelect(name);
+                new Notice(
+                    existingNames.has(name)
+                        ? `Updated "${name}"`
+                        : `Saved "${name}"`
+                );
+            }
+        ).open();
+    }
+
+    private deleteSelectedPair() {
+        const name = this.savedPairSelectEl.value;
+        if (!name) {
+            new Notice("Select a saved pair to delete");
+            return;
+        }
+        new ConfirmModal(
+            this.plugin.app,
+            `Delete saved pair "${name}"?`,
+            "Delete",
+            () => {
+                this.plugin.settings.savedPairs =
+                    this.plugin.settings.savedPairs.filter(
+                        (p) => p.name !== name
+                    );
+                this.plugin.saveSettings();
+                this.refreshSavedPairsSelect();
+                new Notice(`Deleted "${name}"`);
+            }
+        ).open();
     }
 
     private getFilesInScope(): TFile[] {
@@ -584,6 +826,7 @@ class RegexView extends ItemView {
             this.setStatus("Enter a pattern");
             return;
         }
+        this.recordHistory();
         const matches = await this.ensureMatches();
         if (matches.length === 0) {
             this.setStatus("No matches");
@@ -627,6 +870,7 @@ class RegexView extends ItemView {
             this.setStatus("Enter a pattern");
             return;
         }
+        this.recordHistory();
         const matches = await this.ensureMatches();
         const fileCount = new Set(matches.map((m) => m.file.path)).size;
         this.setStatus(
@@ -640,6 +884,7 @@ class RegexView extends ItemView {
             this.setStatus("Enter a pattern");
             return;
         }
+        this.recordHistory();
         const matches = await this.ensureMatches();
         if (matches.length === 0) {
             this.setStatus("No matches");
@@ -738,6 +983,7 @@ class RegexView extends ItemView {
             this.setStatus("Enter a pattern");
             return;
         }
+        this.recordHistory();
         const regex = this.buildRegex(true);
         if (!regex) return;
 
@@ -853,6 +1099,132 @@ class RegexView extends ItemView {
         }
     }
 
+    async dryRun() {
+        if (!this.plugin.settings.findPattern) {
+            this.setStatus("Enter a pattern");
+            return;
+        }
+        this.recordHistory();
+        const singleRegex = this.buildRegex(false);
+        if (!singleRegex) return;
+        const matches = await this.ensureMatches();
+        const replacement = this.plugin.settings.replacePattern;
+        const items: DryRunItem[] = matches.map((m) => {
+            const fresh = new RegExp(singleRegex.source, singleRegex.flags);
+            const replaced = m.text.replace(fresh, replacement);
+            return {
+                match: m,
+                replacedText: replaced,
+                multiline:
+                    m.text.includes("\n") || replaced.includes("\n"),
+            };
+        });
+        const fileCount = new Set(items.map((i) => i.match.file.path)).size;
+        this.setStatus(
+            `Dry run: ${items.length} match${items.length === 1 ? "" : "es"} in ${fileCount} file${fileCount === 1 ? "" : "s"} — nothing changed`
+        );
+        this.renderDryRun(items);
+    }
+
+    private renderDryRun(items: DryRunItem[]) {
+        this.resultsEl.empty();
+        if (items.length === 0) {
+            this.resultsEl.createDiv({
+                cls: "gr-no-results",
+                text: "No matches. Nothing would be replaced.",
+            });
+            return;
+        }
+        const RENDER_CAP = 1000;
+        const truncated = items.length > RENDER_CAP;
+        const slice = truncated ? items.slice(0, RENDER_CAP) : items;
+        const byFile = new Map<
+            string,
+            { file: TFile; items: DryRunItem[] }
+        >();
+        for (const it of slice) {
+            let entry = byFile.get(it.match.file.path);
+            if (!entry) {
+                entry = { file: it.match.file, items: [] };
+                byFile.set(it.match.file.path, entry);
+            }
+            entry.items.push(it);
+        }
+        for (const { file, items: fileItems } of byFile.values()) {
+            const group = this.resultsEl.createDiv({ cls: "gr-file-group" });
+            const header = group.createDiv({ cls: "gr-file-header" });
+            header.createSpan({ cls: "gr-file-path", text: file.path });
+            header.createSpan({
+                cls: "gr-file-count",
+                text: `${fileItems.length} would change`,
+            });
+            for (const it of fileItems) {
+                const block = group.createDiv({ cls: "gr-dry-block" });
+                block.createDiv({
+                    cls: "gr-line-num",
+                    text: `line ${it.match.line + 1}, col ${it.match.col + 1}`,
+                });
+                const before = block.createDiv({
+                    cls: "gr-dry-row gr-dry-before",
+                });
+                before.createSpan({ cls: "gr-dry-marker", text: "−" });
+                const after = block.createDiv({
+                    cls: "gr-dry-row gr-dry-after",
+                });
+                after.createSpan({ cls: "gr-dry-marker", text: "+" });
+
+                if (!it.multiline) {
+                    const line = it.match.lineContext;
+                    const col = it.match.col;
+                    const end = col + it.match.length;
+                    before.createSpan({
+                        cls: "gr-dry-text",
+                        text: line.slice(0, col),
+                    });
+                    before.createSpan({
+                        cls: "gr-matched",
+                        text: line.slice(col, end),
+                    });
+                    before.createSpan({
+                        cls: "gr-dry-text",
+                        text: line.slice(end),
+                    });
+                    after.createSpan({
+                        cls: "gr-dry-text",
+                        text: line.slice(0, col),
+                    });
+                    after.createSpan({
+                        cls: "gr-matched gr-dry-replacement",
+                        text: it.replacedText,
+                    });
+                    after.createSpan({
+                        cls: "gr-dry-text",
+                        text: line.slice(end),
+                    });
+                } else {
+                    before.createSpan({
+                        cls: "gr-matched gr-dry-multiline",
+                        text: it.match.text,
+                    });
+                    after.createSpan({
+                        cls: "gr-matched gr-dry-replacement gr-dry-multiline",
+                        text: it.replacedText,
+                    });
+                }
+
+                block.addEventListener("click", () =>
+                    this.navigateToMatch(it.match)
+                );
+            }
+        }
+        if (truncated) {
+            this.resultsEl.createDiv({
+                cls: "gr-no-results",
+                text: `…and ${items.length - RENDER_CAP} more not shown`,
+            });
+        }
+    }
+
     private renderResults(matches: RegexMatch[]) {
         this.resultsEl.empty();
         if (matches.length === 0) {
@@ -946,5 +1318,102 @@ class FolderPickerModal extends SuggestModal<TFolder> {
 
     onChooseSuggestion(folder: TFolder) {
         this.onChoose(folder);
+    }
+}
+
+class PromptModal extends Modal {
+    private readonly title: string;
+    private readonly placeholder: string;
+    private readonly defaultValue: string;
+    private readonly onSubmit: (value: string) => void;
+    private inputEl!: HTMLInputElement;
+
+    constructor(
+        app: App,
+        title: string,
+        placeholder: string,
+        defaultValue: string,
+        onSubmit: (value: string) => void
+    ) {
+        super(app);
+        this.title = title;
+        this.placeholder = placeholder;
+        this.defaultValue = defaultValue;
+        this.onSubmit = onSubmit;
+    }
+
+    onOpen() {
+        this.titleEl.setText(this.title);
+        this.inputEl = this.contentEl.createEl("input", {
+            type: "text",
+            cls: "gr-prompt-input",
+        });
+        this.inputEl.placeholder = this.placeholder;
+        this.inputEl.value = this.defaultValue;
+        this.inputEl.focus();
+        this.inputEl.select();
+        this.inputEl.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                this.submit();
+            } else if (e.key === "Escape") {
+                this.close();
+            }
+        });
+        const btnRow = this.contentEl.createDiv({ cls: "gr-prompt-buttons" });
+        const cancel = btnRow.createEl("button", { text: "Cancel" });
+        cancel.addEventListener("click", () => this.close());
+        const ok = btnRow.createEl("button", {
+            text: "Save",
+            cls: "mod-cta",
+        });
+        ok.addEventListener("click", () => this.submit());
+    }
+
+    private submit() {
+        const value = this.inputEl.value;
+        this.close();
+        this.onSubmit(value);
+    }
+
+    onClose() {
+        this.contentEl.empty();
+    }
+}
+
+class ConfirmModal extends Modal {
+    private readonly message: string;
+    private readonly confirmLabel: string;
+    private readonly onConfirm: () => void;
+
+    constructor(
+        app: App,
+        message: string,
+        confirmLabel: string,
+        onConfirm: () => void
+    ) {
+        super(app);
+        this.message = message;
+        this.confirmLabel = confirmLabel;
+        this.onConfirm = onConfirm;
+    }
+
+    onOpen() {
+        this.contentEl.createEl("p", { text: this.message });
+        const btnRow = this.contentEl.createDiv({ cls: "gr-prompt-buttons" });
+        const cancel = btnRow.createEl("button", { text: "Cancel" });
+        cancel.addEventListener("click", () => this.close());
+        const confirm = btnRow.createEl("button", {
+            text: this.confirmLabel,
+            cls: "mod-warning",
+        });
+        confirm.addEventListener("click", () => {
+            this.close();
+            this.onConfirm();
+        });
+    }
+
+    onClose() {
+        this.contentEl.empty();
     }
 }

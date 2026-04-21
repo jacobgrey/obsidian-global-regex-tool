@@ -157,3 +157,115 @@
 .global-regex-view textarea.gr-invalid {
     border-color: var(--text-error) !important;
 }
+
+.global-regex-view .gr-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+}
+
+.global-regex-view .gr-mini-btn {
+    padding: 2px 8px;
+    font-size: var(--font-ui-smaller, 0.85em);
+    line-height: 1.4;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--interactive-normal);
+    color: var(--text-normal);
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.global-regex-view .gr-mini-btn:hover {
+    background: var(--interactive-hover);
+}
+
+.global-regex-view .gr-saved-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.global-regex-view .gr-saved-row .gr-label {
+    flex-basis: 100%;
+}
+
+.global-regex-view .gr-saved-row select.gr-input {
+    flex: 1;
+    min-width: 140px;
+}
+
+.global-regex-view .gr-dry-block {
+    padding: 6px 6px;
+    margin-bottom: 4px;
+    border-left: 2px solid var(--background-modifier-border);
+    cursor: pointer;
+    border-radius: 3px;
+}
+
+.global-regex-view .gr-dry-block:hover {
+    background: var(--background-modifier-hover);
+}
+
+.global-regex-view .gr-dry-row {
+    font-family: var(--font-monospace);
+    padding: 1px 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    display: flex;
+    gap: 4px;
+}
+
+.global-regex-view .gr-dry-marker {
+    flex-shrink: 0;
+    width: 1em;
+    text-align: center;
+    font-weight: 700;
+    user-select: none;
+}
+
+.global-regex-view .gr-dry-before {
+    background: color-mix(in srgb, var(--text-error) 12%, transparent);
+    color: var(--text-normal);
+}
+
+.global-regex-view .gr-dry-before .gr-dry-marker {
+    color: var(--text-error);
+}
+
+.global-regex-view .gr-dry-after {
+    background: color-mix(in srgb, var(--text-success, var(--interactive-accent)) 14%, transparent);
+    color: var(--text-normal);
+}
+
+.global-regex-view .gr-dry-after .gr-dry-marker {
+    color: var(--text-success, var(--interactive-accent));
+}
+
+.global-regex-view .gr-dry-replacement {
+    background: color-mix(in srgb, var(--text-success, var(--interactive-accent)) 30%, transparent);
+}
+
+.global-regex-view .gr-dry-multiline {
+    white-space: pre-wrap;
+}
+
+.global-regex-view .gr-prompt-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    box-sizing: border-box;
+}
+
+.global-regex-view .gr-prompt-buttons,
+.modal .gr-prompt-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 12px;
+}
