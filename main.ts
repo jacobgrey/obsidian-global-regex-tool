@@ -27,6 +27,10 @@ interface SavedPair {
     name: string;
     find: string;
     replace: string;
+    flagI?: boolean;
+    flagM?: boolean;
+    flagS?: boolean;
+    flagU?: boolean;
 }
 
 interface RegexToolSettings {
@@ -594,6 +598,17 @@ class RegexView extends ItemView {
         this.matches = [];
         this.matchesValid = false;
         this.currentIndex = -1;
+        this.markResultsStale();
+    }
+
+    private markResultsStale() {
+        if (!this.resultsEl || !this.resultsEl.hasChildNodes()) return;
+        if (this.resultsEl.querySelector(".gr-stale-banner")) return;
+        const banner = createDiv({
+            cls: "gr-stale-banner",
+            text: "Results are stale — re-run the search to refresh",
+        });
+        this.resultsEl.prepend(banner);
     }
 
     private getEffectiveReplacement(): string {
@@ -614,6 +629,7 @@ class RegexView extends ItemView {
         this.flagMEl.checked = s.flagM;
         this.flagSEl.checked = s.flagS;
         this.flagUEl.checked = s.flagU;
+        this.savedPairSelectEl.value = "";
         this.validateRegexLive();
         this.invalidateMatches();
         this.resultsEl.empty();
@@ -721,39 +737,75 @@ class RegexView extends ItemView {
             (p) => p.name === name
         );
         if (!pair) return;
-        this.plugin.settings.findPattern = pair.find;
-        this.plugin.settings.replacePattern = pair.replace;
+        const s = this.plugin.settings;
+        s.findPattern = pair.find;
+        s.replacePattern = pair.replace;
         this.findInputEl.value = pair.find;
         this.replaceInputEl.value = pair.replace;
+        const restoredFlags: string[] = [];
+        const applyFlag = (
+            key: "flagI" | "flagM" | "flagS" | "flagU",
+            letter: string,
+            el: HTMLInputElement
+        ) => {
+            if (typeof pair[key] === "boolean") {
+                s[key] = pair[key] as boolean;
+                el.checked = pair[key] as boolean;
+                restoredFlags.push(letter);
+            }
+        };
+        applyFlag("flagI", "i", this.flagIEl);
+        applyFlag("flagM", "m", this.flagMEl);
+        applyFlag("flagS", "s", this.flagSEl);
+        applyFlag("flagU", "u", this.flagUEl);
         this.validateRegexLive();
         this.invalidateMatches();
         this.plugin.saveSettings();
-        this.setStatus(`Loaded "${name}"`);
+        const flagNote = restoredFlags.length === 0
+            ? " (no flags saved; kept current)"
+            : "";
+        this.setStatus(`Loaded "${name}"${flagNote}`);
     }
 
     private saveCurrentPair() {
-        const find = this.plugin.settings.findPattern;
-        const replace = this.plugin.settings.replacePattern;
+        const s = this.plugin.settings;
+        const find = s.findPattern;
+        const replace = s.replacePattern;
         if (!find) {
             new Notice("Enter a find pattern before saving");
             return;
         }
-        const existingNames = new Set(
-            this.plugin.settings.savedPairs.map((p) => p.name)
-        );
+        const flagI = s.flagI;
+        const flagM = s.flagM;
+        const flagS = s.flagS;
+        const flagU = s.flagU;
+        const existingNames = new Set(s.savedPairs.map((p) => p.name));
         new SavePairModal(
             this.plugin.app,
-            this.plugin.settings.savedPairs,
+            s.savedPairs,
             find,
             replace,
+            { flagI, flagM, flagS, flagU },
             (name) => {
-                const pairs = this.plugin.settings.savedPairs;
+                const pairs = s.savedPairs;
                 const existing = pairs.find((p) => p.name === name);
                 if (existing) {
                     existing.find = find;
                     existing.replace = replace;
+                    existing.flagI = flagI;
+                    existing.flagM = flagM;
+                    existing.flagS = flagS;
+                    existing.flagU = flagU;
                 } else {
-                    pairs.push({ name, find, replace });
+                    pairs.push({
+                        name,
+                        find,
+                        replace,
+                        flagI,
+                        flagM,
+                        flagS,
+                        flagU,
+                    });
                 }
                 pairs.sort((a, b) => a.name.localeCompare(b.name));
                 this.plugin.saveSettings();
@@ -882,8 +934,8 @@ class RegexView extends ItemView {
         return { view: active, content, ranges };
     }
 
-    private async ensureMatches(): Promise<RegexMatch[]> {
-        if (this.matchesValid) return this.matches;
+    private async ensureMatches(forceRecompute = false): Promise<RegexMatch[]> {
+        if (!forceRecompute && this.matchesValid) return this.matches;
         const regex = this.buildRegex(true);
         if (!regex) {
             this.matches = [];
@@ -1025,7 +1077,7 @@ class RegexView extends ItemView {
             return;
         }
         this.recordHistory();
-        const matches = await this.ensureMatches();
+        const matches = await this.ensureMatches(true);
         const fileCount = new Set(matches.map((m) => m.file.path)).size;
         this.setStatus(
             `${matches.length} match${matches.length === 1 ? "" : "es"} in ${fileCount} file${fileCount === 1 ? "" : "s"}`
@@ -1218,6 +1270,23 @@ class RegexView extends ItemView {
     }
 
     private async navigateToMatch(match: RegexMatch) {
+        try {
+            const data = await this.plugin.app.vault.cachedRead(match.file);
+            if (
+                data.slice(match.index, match.index + match.length) !==
+                match.text
+            ) {
+                this.setStatus(
+                    "Match location has shifted — re-run the search"
+                );
+                new Notice("Match location changed — please re-run search");
+                this.invalidateMatches();
+                return;
+            }
+        } catch {
+            this.setStatus("File unavailable");
+            return;
+        }
         const workspace = this.plugin.app.workspace;
         let targetLeaf: WorkspaceLeaf | null = null;
         workspace.iterateRootLeaves((leaf) => {
@@ -1258,7 +1327,7 @@ class RegexView extends ItemView {
             return;
         }
         this.recordHistory();
-        const matches = await this.ensureMatches();
+        const matches = await this.ensureMatches(true);
         const template = this.getEffectiveReplacement();
         const items: DryRunItem[] = matches.map((m) => {
             const replaced = expandReplacementTemplate(
@@ -1480,6 +1549,12 @@ class SavePairModal extends Modal {
     private readonly pairs: SavedPair[];
     private readonly find: string;
     private readonly replace: string;
+    private readonly flags: {
+        flagI: boolean;
+        flagM: boolean;
+        flagS: boolean;
+        flagU: boolean;
+    };
     private readonly onSubmit: (name: string) => void;
     private readonly existingNames: Set<string>;
     private inputEl!: HTMLInputElement;
@@ -1491,12 +1566,19 @@ class SavePairModal extends Modal {
         pairs: SavedPair[],
         find: string,
         replace: string,
+        flags: {
+            flagI: boolean;
+            flagM: boolean;
+            flagS: boolean;
+            flagU: boolean;
+        },
         onSubmit: (name: string) => void
     ) {
         super(app);
         this.pairs = pairs;
         this.find = find;
         this.replace = replace;
+        this.flags = flags;
         this.onSubmit = onSubmit;
         this.existingNames = new Set(pairs.map((p) => p.name));
     }
@@ -1522,6 +1604,17 @@ class SavePairModal extends Modal {
             cls: "gr-save-value",
             text: this.replace || "(empty)",
         });
+        const flagLetters =
+            (this.flags.flagI ? "i" : "") +
+            (this.flags.flagM ? "m" : "") +
+            (this.flags.flagS ? "s" : "") +
+            (this.flags.flagU ? "u" : "");
+        const flagsRow = preview.createDiv();
+        flagsRow.createSpan({ cls: "gr-save-label", text: "Flags: " });
+        flagsRow.createSpan({
+            cls: "gr-save-value",
+            text: flagLetters || "(none)",
+        });
 
         if (this.pairs.length > 0) {
             content.createEl("p", {
@@ -1535,13 +1628,26 @@ class SavePairModal extends Modal {
                     cls: "gr-save-item-name",
                     text: pair.name,
                 });
+                const pairFlags =
+                    (pair.flagI ? "i" : "") +
+                    (pair.flagM ? "m" : "") +
+                    (pair.flagS ? "s" : "") +
+                    (pair.flagU ? "u" : "");
+                const hasFlagMeta =
+                    pair.flagI !== undefined ||
+                    pair.flagM !== undefined ||
+                    pair.flagS !== undefined ||
+                    pair.flagU !== undefined;
                 const snippet =
-                    pair.find.length > 48
-                        ? pair.find.slice(0, 47) + "…"
+                    pair.find.length > 40
+                        ? pair.find.slice(0, 39) + "…"
                         : pair.find;
+                const previewText = hasFlagMeta && pairFlags
+                    ? `${snippet}  /${pairFlags}`
+                    : snippet;
                 item.createSpan({
                     cls: "gr-save-item-preview",
-                    text: snippet,
+                    text: previewText,
                 });
                 item.addEventListener("click", () => {
                     this.inputEl.value = pair.name;

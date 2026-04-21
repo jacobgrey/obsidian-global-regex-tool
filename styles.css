@@ -163,6 +163,20 @@
     padding: 6px;
 }
 
+.global-regex-view .gr-stale-banner {
+    padding: 4px 8px;
+    background: color-mix(
+        in srgb,
+        var(--text-error) 18%,
+        var(--background-secondary)
+    );
+    color: var(--text-error);
+    border-radius: 3px;
+    margin-bottom: 6px;
+    font-size: var(--font-ui-smaller, 0.85em);
+    font-weight: 600;
+}
+
 .global-regex-view textarea.gr-invalid {
     border-color: var(--text-error) !important;
 }
