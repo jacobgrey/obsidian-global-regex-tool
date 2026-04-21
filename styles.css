@@ -1,0 +1,159 @@
+.global-regex-view {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: var(--font-ui-small);
+}
+
+.global-regex-view .gr-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.global-regex-view .gr-row.gr-flags,
+.global-regex-view .gr-row.gr-buttons,
+.global-regex-view .gr-row.gr-folder-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.global-regex-view .gr-label {
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.global-regex-view .gr-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-family: var(--font-monospace);
+    box-sizing: border-box;
+}
+
+.global-regex-view textarea.gr-input {
+    resize: vertical;
+    min-height: 36px;
+    white-space: pre;
+}
+
+.global-regex-view select.gr-input {
+    font-family: var(--font-ui);
+}
+
+.global-regex-view .gr-row.gr-folder-row .gr-input {
+    flex: 1;
+}
+
+.global-regex-view .gr-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--font-monospace);
+    cursor: pointer;
+    user-select: none;
+}
+
+.global-regex-view .gr-btn {
+    padding: 6px 10px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--interactive-normal);
+    color: var(--text-normal);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.global-regex-view .gr-btn:hover {
+    background: var(--interactive-hover);
+}
+
+.global-regex-view .gr-btn.gr-warn {
+    border-color: var(--text-error);
+    color: var(--text-error);
+}
+
+.global-regex-view .gr-btn.gr-warn:hover {
+    background: var(--background-modifier-error-hover, var(--interactive-hover));
+}
+
+.global-regex-view .gr-status {
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    min-height: 1.4em;
+    word-break: break-word;
+}
+
+.global-regex-view .gr-results {
+    overflow-y: auto;
+    border-top: 1px solid var(--background-modifier-border);
+    padding-top: 8px;
+    max-height: 60vh;
+}
+
+.global-regex-view .gr-file-group {
+    margin-bottom: 8px;
+}
+
+.global-regex-view .gr-file-header {
+    font-weight: 600;
+    padding: 4px 0;
+    color: var(--text-accent);
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.global-regex-view .gr-file-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.global-regex-view .gr-file-count {
+    color: var(--text-muted);
+    font-weight: normal;
+    flex-shrink: 0;
+}
+
+.global-regex-view .gr-match {
+    padding: 3px 6px;
+    cursor: pointer;
+    border-radius: 3px;
+    font-family: var(--font-monospace);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.global-regex-view .gr-match:hover {
+    background: var(--background-modifier-hover);
+}
+
+.global-regex-view .gr-line-num {
+    color: var(--text-muted);
+    margin-right: 6px;
+}
+
+.global-regex-view .gr-matched {
+    background: var(--text-highlight-bg);
+    color: var(--text-normal);
+    font-weight: 600;
+}
+
+.global-regex-view .gr-no-results {
+    color: var(--text-muted);
+    padding: 6px;
+}
+
+.global-regex-view textarea.gr-invalid {
+    border-color: var(--text-error) !important;
+}

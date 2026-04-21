@@ -1,0 +1,10 @@
+{
+    "id": "global-regex-tool",
+    "name": "Global Regex Tool",
+    "version": "1.0.0",
+    "minAppVersion": "1.4.0",
+    "description": "Regex find and replace across the current file, folder, a chosen folder, or the entire vault.",
+    "author": "",
+    "authorUrl": "",
+    "isDesktopOnly": false
+}

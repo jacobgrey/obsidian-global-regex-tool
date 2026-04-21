@@ -1,0 +1,27 @@
+{
+    "name": "global-regex-tool",
+    "version": "1.0.0",
+    "description": "Obsidian plugin: regex find and replace across files, folders, or the entire vault.",
+    "main": "main.js",
+    "scripts": {
+        "dev": "node esbuild.config.mjs",
+        "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production && node -e \"const fs=require('fs'),p=require('path');const d=p.join('dist','global-regex-tool');fs.mkdirSync(d,{recursive:true});for(const f of ['main.js','manifest.json','styles.css'])fs.copyFileSync(f,p.join(d,f));console.log('dist/global-regex-tool refreshed');\""
+    },
+    "keywords": [
+        "obsidian",
+        "plugin",
+        "regex",
+        "find",
+        "replace"
+    ],
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "@types/node": "^16.11.6",
+        "builtin-modules": "3.3.0",
+        "esbuild": "0.17.3",
+        "obsidian": "latest",
+        "tslib": "2.4.0",
+        "typescript": "4.7.4"
+    }
+}
