@@ -12,7 +12,12 @@ import {
 
 export const VIEW_TYPE_REGEX = "global-regex-view";
 
-type ScopeType = "current-file" | "current-folder" | "selected-folder" | "vault";
+type ScopeType =
+    | "current-file"
+    | "current-selection"
+    | "current-folder"
+    | "selected-folder"
+    | "vault";
 
 interface RegexToolSettings {
     findPattern: string;
@@ -237,6 +242,7 @@ class RegexView extends ItemView {
         this.scopeSelectEl = scopeRow.createEl("select", { cls: "gr-input" });
         const scopeOptions: [ScopeType, string][] = [
             ["current-file", "Current file"],
+            ["current-selection", "Selection(s) in current file"],
             ["current-folder", "Current folder (recursive)"],
             ["selected-folder", "Selected folder (recursive)"],
             ["vault", "Entire vault"],
@@ -423,7 +429,7 @@ class RegexView extends ItemView {
         const vault = this.plugin.app.vault;
         const workspace = this.plugin.app.workspace;
 
-        if (scope === "current-file") {
+        if (scope === "current-file" || scope === "current-selection") {
             const active = workspace.getActiveFile();
             if (active && matchesExt(active)) return [active];
             return [];
@@ -461,6 +467,30 @@ class RegexView extends ItemView {
         return out;
     }
 
+    private getActiveSelectionRanges(): {
+        view: MarkdownView;
+        content: string;
+        ranges: { start: number; end: number }[];
+    } | null {
+        const active =
+            this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!active || !active.file) return null;
+        const editor = active.editor;
+        const content = editor.getValue();
+        const ranges = editor
+            .listSelections()
+            .map((s) => {
+                const a = editor.posToOffset(s.anchor);
+                const h = editor.posToOffset(s.head);
+                return a <= h
+                    ? { start: a, end: h }
+                    : { start: h, end: a };
+            })
+            .filter((r) => r.end > r.start)
+            .sort((a, b) => a.start - b.start);
+        return { view: active, content, ranges };
+    }
+
     private async ensureMatches(): Promise<RegexMatch[]> {
         if (this.matchesValid) return this.matches;
         const regex = this.buildRegex(true);
@@ -469,6 +499,14 @@ class RegexView extends ItemView {
             this.matchesValid = true;
             return this.matches;
         }
+
+        if (this.plugin.settings.scope === "current-selection") {
+            this.matches = this.computeSelectionMatches(regex);
+            this.matchesValid = true;
+            this.currentIndex = -1;
+            return this.matches;
+        }
+
         const files = this.getFilesInScope();
         const vault = this.plugin.app.vault;
         const all: RegexMatch[] = [];
@@ -504,6 +542,40 @@ class RegexView extends ItemView {
         this.matches = all;
         this.matchesValid = true;
         this.currentIndex = -1;
+        return all;
+    }
+
+    private computeSelectionMatches(regex: RegExp): RegexMatch[] {
+        const sel = this.getActiveSelectionRanges();
+        if (!sel || sel.ranges.length === 0 || !sel.view.file) return [];
+        const file = sel.view.file;
+        const all: RegexMatch[] = [];
+        for (const range of sel.ranges) {
+            const sub = sel.content.slice(range.start, range.end);
+            const freshRegex = new RegExp(regex.source, regex.flags);
+            freshRegex.lastIndex = 0;
+            let m: RegExpExecArray | null;
+            while ((m = freshRegex.exec(sub)) !== null) {
+                if (m[0].length === 0) {
+                    freshRegex.lastIndex++;
+                    continue;
+                }
+                const fileIndex = range.start + m.index;
+                const { line, col, lineStart, lineEnd } = indexToLineCol(
+                    sel.content,
+                    fileIndex
+                );
+                all.push({
+                    file,
+                    index: fileIndex,
+                    length: m[0].length,
+                    text: m[0],
+                    line,
+                    col,
+                    lineContext: sel.content.slice(lineStart, lineEnd),
+                });
+            }
+        }
         return all;
     }
 
@@ -587,20 +659,40 @@ class RegexView extends ItemView {
         );
 
         let replaced = false;
-        await this.plugin.app.vault.process(match.file, (data) => {
-            if (
-                data.slice(match.index, match.index + match.length) ===
-                match.text
-            ) {
-                replaced = true;
-                return (
-                    data.slice(0, match.index) +
-                    replacement +
-                    data.slice(match.index + match.length)
+        if (this.plugin.settings.scope === "current-selection") {
+            const view =
+                this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+            if (view && view.file?.path === match.file.path) {
+                const editor = view.editor;
+                const current = editor.getRange(
+                    editor.offsetToPos(match.index),
+                    editor.offsetToPos(match.index + match.length)
                 );
+                if (current === match.text) {
+                    editor.replaceRange(
+                        replacement,
+                        editor.offsetToPos(match.index),
+                        editor.offsetToPos(match.index + match.length)
+                    );
+                    replaced = true;
+                }
             }
-            return data;
-        });
+        } else {
+            await this.plugin.app.vault.process(match.file, (data) => {
+                if (
+                    data.slice(match.index, match.index + match.length) ===
+                    match.text
+                ) {
+                    replaced = true;
+                    return (
+                        data.slice(0, match.index) +
+                        replacement +
+                        data.slice(match.index + match.length)
+                    );
+                }
+                return data;
+            });
+        }
 
         if (replaced) {
             this.invalidateMatches();
@@ -648,6 +740,12 @@ class RegexView extends ItemView {
         }
         const regex = this.buildRegex(true);
         if (!regex) return;
+
+        if (this.plugin.settings.scope === "current-selection") {
+            await this.replaceAllInSelection(regex);
+            return;
+        }
+
         const files = this.getFilesInScope();
         if (files.length === 0) {
             this.setStatus("No files in scope");
@@ -674,6 +772,47 @@ class RegexView extends ItemView {
         }
         this.invalidateMatches();
         const msg = `Replaced ${total} match${total === 1 ? "" : "es"} in ${changedFiles} file${changedFiles === 1 ? "" : "s"}`;
+        this.setStatus(msg);
+        new Notice(msg);
+        this.resultsEl.empty();
+    }
+
+    private async replaceAllInSelection(regex: RegExp) {
+        const sel = this.getActiveSelectionRanges();
+        if (!sel) {
+            this.setStatus("No active markdown editor");
+            new Notice("Open a markdown file first");
+            return;
+        }
+        if (sel.ranges.length === 0) {
+            this.setStatus("No text selected");
+            new Notice("Select some text first");
+            return;
+        }
+        const editor = sel.view.editor;
+        const replacement = this.plugin.settings.replacePattern;
+        let total = 0;
+        let changedRanges = 0;
+        // Process in reverse order so earlier ranges' offsets stay valid.
+        for (let i = sel.ranges.length - 1; i >= 0; i--) {
+            const range = sel.ranges[i];
+            const text = sel.content.slice(range.start, range.end);
+            const freshCount = new RegExp(regex.source, regex.flags);
+            const m = text.match(freshCount);
+            const count = m ? m.length : 0;
+            if (count === 0) continue;
+            const freshReplace = new RegExp(regex.source, regex.flags);
+            const newText = text.replace(freshReplace, replacement);
+            editor.replaceRange(
+                newText,
+                editor.offsetToPos(range.start),
+                editor.offsetToPos(range.end)
+            );
+            total += count;
+            changedRanges++;
+        }
+        this.invalidateMatches();
+        const msg = `Replaced ${total} match${total === 1 ? "" : "es"} in ${changedRanges} selection${changedRanges === 1 ? "" : "s"}`;
         this.setStatus(msg);
         new Notice(msg);
         this.resultsEl.empty();
