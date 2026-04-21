@@ -83,6 +83,23 @@ interface DryRunItem {
     multiline: boolean;
 }
 
+function processReplacementEscapes(template: string): string {
+    return template.replace(/\\(.)/g, (match, ch) => {
+        switch (ch) {
+            case "n":
+                return "\n";
+            case "r":
+                return "\r";
+            case "t":
+                return "\t";
+            case "\\":
+                return "\\";
+            default:
+                return match;
+        }
+    });
+}
+
 function expandReplacementTemplate(
     template: string,
     fullMatch: string,
@@ -579,6 +596,10 @@ class RegexView extends ItemView {
         this.currentIndex = -1;
     }
 
+    private getEffectiveReplacement(): string {
+        return processReplacementEscapes(this.plugin.settings.replacePattern);
+    }
+
     private clearForm() {
         const s = this.plugin.settings;
         s.findPattern = DEFAULT_SETTINGS.findPattern;
@@ -1030,7 +1051,7 @@ class RegexView extends ItemView {
         const match = matches[idx];
 
         const replacement = expandReplacementTemplate(
-            this.plugin.settings.replacePattern,
+            this.getEffectiveReplacement(),
             match.text,
             match.groupCaptures,
             match.namedCaptures
@@ -1130,7 +1151,7 @@ class RegexView extends ItemView {
             new Notice("No files in scope");
             return;
         }
-        const replacement = this.plugin.settings.replacePattern;
+        const replacement = this.getEffectiveReplacement();
         let total = 0;
         let changedFiles = 0;
         for (const file of files) {
@@ -1168,7 +1189,7 @@ class RegexView extends ItemView {
             return;
         }
         const editor = sel.view.editor;
-        const replacement = this.plugin.settings.replacePattern;
+        const replacement = this.getEffectiveReplacement();
         let total = 0;
         let changedRanges = 0;
         // Process in reverse order so earlier ranges' offsets stay valid.
@@ -1238,7 +1259,7 @@ class RegexView extends ItemView {
         }
         this.recordHistory();
         const matches = await this.ensureMatches();
-        const template = this.plugin.settings.replacePattern;
+        const template = this.getEffectiveReplacement();
         const items: DryRunItem[] = matches.map((m) => {
             const replaced = expandReplacementTemplate(
                 template,
