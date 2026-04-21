@@ -67,12 +67,72 @@ interface RegexMatch {
     line: number;
     col: number;
     lineContext: string;
+    groupCaptures: (string | undefined)[];
+    namedCaptures: Record<string, string | undefined> | undefined;
 }
 
 interface DryRunItem {
     match: RegexMatch;
     replacedText: string;
     multiline: boolean;
+}
+
+function expandReplacementTemplate(
+    template: string,
+    fullMatch: string,
+    groupCaptures: (string | undefined)[],
+    named: Record<string, string | undefined> | undefined
+): string {
+    let out = "";
+    let i = 0;
+    while (i < template.length) {
+        const ch = template[i];
+        if (ch !== "$" || i + 1 >= template.length) {
+            out += ch;
+            i++;
+            continue;
+        }
+        const next = template[i + 1];
+        if (next === "$") {
+            out += "$";
+            i += 2;
+        } else if (next === "&") {
+            out += fullMatch;
+            i += 2;
+        } else if (next === "<") {
+            const end = template.indexOf(">", i + 2);
+            if (end !== -1 && named) {
+                const name = template.slice(i + 2, end);
+                out += named[name] ?? "";
+                i = end + 1;
+            } else {
+                out += ch;
+                i++;
+            }
+        } else if (next >= "0" && next <= "9") {
+            let digits = next;
+            const twoAhead = template[i + 2];
+            if (twoAhead && twoAhead >= "0" && twoAhead <= "9") {
+                const twoDigit = digits + twoAhead;
+                const nTwo = parseInt(twoDigit, 10);
+                if (nTwo > 0 && nTwo <= groupCaptures.length) {
+                    digits = twoDigit;
+                }
+            }
+            const n = parseInt(digits, 10);
+            if (n > 0 && n <= groupCaptures.length) {
+                out += groupCaptures[n - 1] ?? "";
+                i += 1 + digits.length;
+            } else {
+                out += ch;
+                i++;
+            }
+        } else {
+            out += ch;
+            i++;
+        }
+    }
+    return out;
 }
 
 function indexToLineCol(
@@ -685,12 +745,12 @@ class RegexView extends ItemView {
             return this.collectFilesInFolder(active.parent).filter(matchesExt);
         }
         // selected-folder
-        const raw = selectedFolder || "";
-        const path = raw === "/" ? "" : raw;
+        const raw = (selectedFolder || "").trim();
+        const stripped = raw.replace(/^\/+/, "").replace(/\/+$/, "");
         const folder =
-            path === ""
+            stripped === ""
                 ? vault.getRoot()
-                : vault.getAbstractFileByPath(path);
+                : vault.getAbstractFileByPath(stripped);
         if (folder instanceof TFolder) {
             return this.collectFilesInFolder(folder).filter(matchesExt);
         }
@@ -709,13 +769,31 @@ class RegexView extends ItemView {
         return out;
     }
 
+    private getTargetMarkdownView(): MarkdownView | null {
+        const workspace = this.plugin.app.workspace;
+        const direct = workspace.getActiveViewOfType(MarkdownView);
+        if (direct) return direct;
+        const activeFile = workspace.getActiveFile();
+        if (!activeFile) return null;
+        let found: MarkdownView | null = null;
+        workspace.iterateRootLeaves((leaf) => {
+            if (
+                !found &&
+                leaf.view instanceof MarkdownView &&
+                leaf.view.file?.path === activeFile.path
+            ) {
+                found = leaf.view;
+            }
+        });
+        return found;
+    }
+
     private getActiveSelectionRanges(): {
         view: MarkdownView;
         content: string;
         ranges: { start: number; end: number }[];
     } | null {
-        const active =
-            this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+        const active = this.getTargetMarkdownView();
         if (!active || !active.file) return null;
         const editor = active.editor;
         const content = editor.getValue();
@@ -778,6 +856,10 @@ class RegexView extends ItemView {
                     line,
                     col,
                     lineContext: content.slice(lineStart, lineEnd),
+                    groupCaptures: Array.prototype.slice.call(m, 1),
+                    namedCaptures: m.groups
+                        ? { ...m.groups }
+                        : undefined,
                 });
             }
         }
@@ -815,6 +897,8 @@ class RegexView extends ItemView {
                     line,
                     col,
                     lineContext: sel.content.slice(lineStart, lineEnd),
+                    groupCaptures: Array.prototype.slice.call(m, 1),
+                    namedCaptures: m.groups ? { ...m.groups } : undefined,
                 });
             }
         }
@@ -847,8 +931,7 @@ class RegexView extends ItemView {
     }
 
     private findStartingIndex(matches: RegexMatch[]): number {
-        const active =
-            this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+        const active = this.getTargetMarkdownView();
         if (active && active.file) {
             const cursor = active.editor.getCursor();
             const cursorOffset = active.editor.posToOffset(cursor);
@@ -896,17 +979,16 @@ class RegexView extends ItemView {
         if (idx < 0) idx = this.findStartingIndex(matches);
         const match = matches[idx];
 
-        const singleRegex = this.buildRegex(false);
-        if (!singleRegex) return;
-        const replacement = match.text.replace(
-            singleRegex,
-            this.plugin.settings.replacePattern
+        const replacement = expandReplacementTemplate(
+            this.plugin.settings.replacePattern,
+            match.text,
+            match.groupCaptures,
+            match.namedCaptures
         );
 
         let replaced = false;
         if (this.plugin.settings.scope === "current-selection") {
-            const view =
-                this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+            const view = this.getTargetMarkdownView();
             if (view && view.file?.path === match.file.path) {
                 const editor = view.editor;
                 const current = editor.getRange(
@@ -1105,13 +1187,15 @@ class RegexView extends ItemView {
             return;
         }
         this.recordHistory();
-        const singleRegex = this.buildRegex(false);
-        if (!singleRegex) return;
         const matches = await this.ensureMatches();
-        const replacement = this.plugin.settings.replacePattern;
+        const template = this.plugin.settings.replacePattern;
         const items: DryRunItem[] = matches.map((m) => {
-            const fresh = new RegExp(singleRegex.source, singleRegex.flags);
-            const replaced = m.text.replace(fresh, replacement);
+            const replaced = expandReplacementTemplate(
+                template,
+                m.text,
+                m.groupCaptures,
+                m.namedCaptures
+            );
             return {
                 match: m,
                 replacedText: replaced,
