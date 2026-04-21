@@ -319,7 +319,7 @@ class RegexView extends ItemView {
         this.findInputEl = findRow.createEl("textarea", {
             cls: "gr-input gr-find",
         });
-        this.findInputEl.rows = 2;
+        this.findInputEl.rows = 3;
         this.findInputEl.value = this.plugin.settings.findPattern;
         this.findInputEl.spellcheck = false;
         this.findInputEl.addEventListener("input", () => {
@@ -329,11 +329,13 @@ class RegexView extends ItemView {
             this.invalidateMatches();
         });
         this.findInputEl.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 this.findNext();
             }
         });
+        this.findInputEl.title =
+            "Line breaks here are visual only and are ignored in the search. Ctrl/Cmd+Enter runs Find Next.";
 
         // Replace
         const replaceRow = container.createDiv({ cls: "gr-row" });
@@ -354,13 +356,15 @@ class RegexView extends ItemView {
         this.replaceInputEl = replaceRow.createEl("textarea", {
             cls: "gr-input gr-replace",
         });
-        this.replaceInputEl.rows = 2;
+        this.replaceInputEl.rows = 3;
         this.replaceInputEl.value = this.plugin.settings.replacePattern;
         this.replaceInputEl.spellcheck = false;
         this.replaceInputEl.addEventListener("input", () => {
             this.plugin.settings.replacePattern = this.replaceInputEl.value;
             this.plugin.saveSettings();
         });
+        this.replaceInputEl.title =
+            "Line breaks here are visual only. Use \\n for a literal newline in the replacement.";
 
         // Flags
         const flagsRow = container.createDiv({ cls: "gr-row gr-flags" });
@@ -559,7 +563,7 @@ class RegexView extends ItemView {
     }
 
     private validateRegexLive() {
-        const pattern = this.plugin.settings.findPattern;
+        const pattern = this.getEffectivePattern();
         if (!pattern) {
             this.findInputEl.removeClass("gr-invalid");
             this.setStatus("");
@@ -578,7 +582,7 @@ class RegexView extends ItemView {
     }
 
     private buildRegex(global: boolean): RegExp | null {
-        const pattern = this.plugin.settings.findPattern;
+        const pattern = this.getEffectivePattern();
         if (!pattern) return null;
         let flags = "";
         if (global) flags += "g";
@@ -611,8 +615,14 @@ class RegexView extends ItemView {
         this.resultsEl.prepend(banner);
     }
 
+    private getEffectivePattern(): string {
+        return this.plugin.settings.findPattern.replace(/[\r\n]/g, "");
+    }
+
     private getEffectiveReplacement(): string {
-        return processReplacementEscapes(this.plugin.settings.replacePattern);
+        return processReplacementEscapes(
+            this.plugin.settings.replacePattern.replace(/[\r\n]/g, "")
+        );
     }
 
     private clearForm() {
@@ -1029,7 +1039,7 @@ class RegexView extends ItemView {
     }
 
     async findNext() {
-        if (!this.plugin.settings.findPattern) {
+        if (!this.getEffectivePattern()) {
             this.setStatus("Enter a pattern");
             return;
         }
@@ -1072,7 +1082,7 @@ class RegexView extends ItemView {
     }
 
     async findAll() {
-        if (!this.plugin.settings.findPattern) {
+        if (!this.getEffectivePattern()) {
             this.setStatus("Enter a pattern");
             return;
         }
@@ -1086,7 +1096,7 @@ class RegexView extends ItemView {
     }
 
     async replaceNext() {
-        if (!this.plugin.settings.findPattern) {
+        if (!this.getEffectivePattern()) {
             this.setStatus("Enter a pattern");
             return;
         }
@@ -1184,7 +1194,7 @@ class RegexView extends ItemView {
     }
 
     async replaceAll() {
-        if (!this.plugin.settings.findPattern) {
+        if (!this.getEffectivePattern()) {
             this.setStatus("Enter a pattern");
             return;
         }
@@ -1322,7 +1332,7 @@ class RegexView extends ItemView {
     }
 
     async dryRun() {
-        if (!this.plugin.settings.findPattern) {
+        if (!this.getEffectivePattern()) {
             this.setStatus("Enter a pattern");
             return;
         }

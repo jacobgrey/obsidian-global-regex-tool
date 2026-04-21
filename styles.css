@@ -303,6 +303,10 @@
     word-break: break-word;
 }
 
+.modal .gr-save-preview .gr-save-value {
+    white-space: pre-wrap;
+}
+
 .modal .gr-save-label {
     color: var(--text-muted);
     font-weight: 600;
