@@ -6,6 +6,8 @@ import {
     Modal,
     Notice,
     Plugin,
+    PluginSettingTab,
+    Setting,
     SuggestModal,
     TFile,
     TFolder,
@@ -40,9 +42,12 @@ interface RegexToolSettings {
     findHistory: string[];
     replaceHistory: string[];
     savedPairs: SavedPair[];
+    historyLimit: number;
 }
 
-const HISTORY_LIMIT = 20;
+const HISTORY_LIMIT_MIN = 1;
+const HISTORY_LIMIT_MAX = 100;
+const HISTORY_LIMIT_DEFAULT = 20;
 
 const DEFAULT_SETTINGS: RegexToolSettings = {
     findPattern: "",
@@ -57,6 +62,7 @@ const DEFAULT_SETTINGS: RegexToolSettings = {
     findHistory: [],
     replaceHistory: [],
     savedPairs: [],
+    historyLimit: HISTORY_LIMIT_DEFAULT,
 };
 
 interface RegexMatch {
@@ -175,6 +181,8 @@ export default class GlobalRegexPlugin extends Plugin {
             name: "Open regex find and replace",
             callback: () => this.activateView(),
         });
+
+        this.addSettingTab(new GlobalRegexSettingTab(this.app, this));
     }
 
     onunload() {
@@ -558,11 +566,15 @@ class RegexView extends ItemView {
 
     private recordHistory() {
         const s = this.plugin.settings;
+        const limit = Math.max(
+            HISTORY_LIMIT_MIN,
+            Math.min(HISTORY_LIMIT_MAX, s.historyLimit || HISTORY_LIMIT_DEFAULT)
+        );
         const push = (list: string[], value: string) => {
             if (!value) return list;
             const next = list.filter((v) => v !== value);
             next.unshift(value);
-            if (next.length > HISTORY_LIMIT) next.length = HISTORY_LIMIT;
+            if (next.length > limit) next.length = limit;
             return next;
         };
         const beforeFind = s.findHistory;
@@ -1499,5 +1511,60 @@ class ConfirmModal extends Modal {
 
     onClose() {
         this.contentEl.empty();
+    }
+}
+
+class GlobalRegexSettingTab extends PluginSettingTab {
+    plugin: GlobalRegexPlugin;
+
+    constructor(app: App, plugin: GlobalRegexPlugin) {
+        super(app, plugin);
+        this.plugin = plugin;
+    }
+
+    display(): void {
+        const { containerEl } = this;
+        containerEl.empty();
+
+        new Setting(containerEl)
+            .setName("History limit")
+            .setDesc(
+                `Maximum number of recent find and replace strings to remember (per list). Range ${HISTORY_LIMIT_MIN}–${HISTORY_LIMIT_MAX}. Lowering this trims existing history.`
+            )
+            .addSlider((slider) =>
+                slider
+                    .setLimits(HISTORY_LIMIT_MIN, HISTORY_LIMIT_MAX, 1)
+                    .setValue(
+                        Math.max(
+                            HISTORY_LIMIT_MIN,
+                            Math.min(
+                                HISTORY_LIMIT_MAX,
+                                this.plugin.settings.historyLimit ||
+                                    HISTORY_LIMIT_DEFAULT
+                            )
+                        )
+                    )
+                    .setDynamicTooltip()
+                    .onChange(async (value) => {
+                        const clamped = Math.max(
+                            HISTORY_LIMIT_MIN,
+                            Math.min(HISTORY_LIMIT_MAX, value)
+                        );
+                        this.plugin.settings.historyLimit = clamped;
+                        if (
+                            this.plugin.settings.findHistory.length > clamped
+                        ) {
+                            this.plugin.settings.findHistory.length = clamped;
+                        }
+                        if (
+                            this.plugin.settings.replaceHistory.length >
+                            clamped
+                        ) {
+                            this.plugin.settings.replaceHistory.length =
+                                clamped;
+                        }
+                        await this.plugin.saveSettings();
+                    })
+            );
     }
 }
