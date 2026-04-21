@@ -82,6 +82,15 @@
     background: var(--background-modifier-error-hover, var(--interactive-hover));
 }
 
+.global-regex-view .gr-btn.gr-clear {
+    margin-left: auto;
+    opacity: 0.75;
+}
+
+.global-regex-view .gr-btn.gr-clear:hover {
+    opacity: 1;
+}
+
 .global-regex-view .gr-status {
     padding: 6px 8px;
     border-radius: 4px;

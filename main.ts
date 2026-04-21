@@ -226,6 +226,10 @@ class RegexView extends ItemView {
     private folderRowEl!: HTMLElement;
     private extensionInputEl!: HTMLInputElement;
     private savedPairSelectEl!: HTMLSelectElement;
+    private flagIEl!: HTMLInputElement;
+    private flagMEl!: HTMLInputElement;
+    private flagSEl!: HTMLInputElement;
+    private flagUEl!: HTMLInputElement;
     private resultsEl!: HTMLElement;
     private statusEl!: HTMLElement;
 
@@ -340,15 +344,15 @@ class RegexView extends ItemView {
         // Flags
         const flagsRow = container.createDiv({ cls: "gr-row gr-flags" });
         flagsRow.createEl("label", { text: "Flags:", cls: "gr-label" });
-        this.makeFlag(flagsRow, "i", "Case insensitive", "flagI");
-        this.makeFlag(
+        this.flagIEl = this.makeFlag(flagsRow, "i", "Case insensitive", "flagI");
+        this.flagMEl = this.makeFlag(
             flagsRow,
             "m",
             "Multiline (^ and $ match line boundaries)",
             "flagM"
         );
-        this.makeFlag(flagsRow, "s", "Dot matches newlines", "flagS");
-        this.makeFlag(flagsRow, "u", "Unicode", "flagU");
+        this.flagSEl = this.makeFlag(flagsRow, "s", "Dot matches newlines", "flagS");
+        this.flagUEl = this.makeFlag(flagsRow, "u", "Unicode", "flagU");
 
         // Scope
         const scopeRow = container.createDiv({ cls: "gr-row" });
@@ -453,34 +457,49 @@ class RegexView extends ItemView {
         });
         deletePairBtn.addEventListener("click", () => this.deleteSelectedPair());
 
-        // Buttons
-        const btnRow = container.createDiv({ cls: "gr-row gr-buttons" });
-        const findNextBtn = btnRow.createEl("button", {
+        // Find actions
+        const findBtnRow = container.createDiv({
+            cls: "gr-row gr-buttons gr-find-buttons",
+        });
+        const findNextBtn = findBtnRow.createEl("button", {
             text: "Find Next",
             cls: "gr-btn",
         });
-        const findAllBtn = btnRow.createEl("button", {
+        const findAllBtn = findBtnRow.createEl("button", {
             text: "Find All",
             cls: "gr-btn",
         });
-        const dryRunBtn = btnRow.createEl("button", {
+        findNextBtn.addEventListener("click", () => this.findNext());
+        findAllBtn.addEventListener("click", () => this.findAll());
+
+        // Replace actions
+        const replaceBtnRow = container.createDiv({
+            cls: "gr-row gr-buttons gr-replace-buttons",
+        });
+        const dryRunBtn = replaceBtnRow.createEl("button", {
             text: "Dry Run",
             cls: "gr-btn",
             attr: { title: "Preview what would be replaced, without changing any files" },
         });
-        const replaceBtn = btnRow.createEl("button", {
+        const replaceBtn = replaceBtnRow.createEl("button", {
             text: "Replace",
             cls: "gr-btn",
         });
-        const replaceAllBtn = btnRow.createEl("button", {
+        const replaceAllBtn = replaceBtnRow.createEl("button", {
             text: "Replace All",
             cls: "gr-btn gr-warn",
         });
-        findNextBtn.addEventListener("click", () => this.findNext());
-        findAllBtn.addEventListener("click", () => this.findAll());
+        const clearBtn = replaceBtnRow.createEl("button", {
+            text: "Clear",
+            cls: "gr-btn gr-clear",
+            attr: {
+                title: "Reset find, replace, and flags to their defaults",
+            },
+        });
         dryRunBtn.addEventListener("click", () => this.dryRun());
         replaceBtn.addEventListener("click", () => this.replaceNext());
         replaceAllBtn.addEventListener("click", () => this.replaceAll());
+        clearBtn.addEventListener("click", () => this.clearForm());
 
         // Status + results
         this.statusEl = container.createDiv({ cls: "gr-status" });
@@ -558,6 +577,27 @@ class RegexView extends ItemView {
         this.matches = [];
         this.matchesValid = false;
         this.currentIndex = -1;
+    }
+
+    private clearForm() {
+        const s = this.plugin.settings;
+        s.findPattern = DEFAULT_SETTINGS.findPattern;
+        s.replacePattern = DEFAULT_SETTINGS.replacePattern;
+        s.flagI = DEFAULT_SETTINGS.flagI;
+        s.flagM = DEFAULT_SETTINGS.flagM;
+        s.flagS = DEFAULT_SETTINGS.flagS;
+        s.flagU = DEFAULT_SETTINGS.flagU;
+        this.findInputEl.value = s.findPattern;
+        this.replaceInputEl.value = s.replacePattern;
+        this.flagIEl.checked = s.flagI;
+        this.flagMEl.checked = s.flagM;
+        this.flagSEl.checked = s.flagS;
+        this.flagUEl.checked = s.flagU;
+        this.validateRegexLive();
+        this.invalidateMatches();
+        this.resultsEl.empty();
+        this.plugin.saveSettings();
+        this.setStatus("Cleared");
     }
 
     private setStatus(text: string) {
